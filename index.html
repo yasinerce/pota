@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>POTA — Döküm Ocağı</title>
+<meta name="description" content="Aynı metalleri birleştir, potayı taşırma. Günlük tohumlu birleştirme oyunu.">
+<meta name="theme-color" content="#0C0E13">
+<!-- İçerik Güvenlik Politikası.
+     ÖNEMLİ: script-src'te 'unsafe-inline' YOK, bu yüzden oyun kodu satır içi
+     olamaz — game.js olarak ayrı dosyada. Tek dosyaya geri döndürürsen CSP
+     kodu engeller ve sayfa donuk kalır (konsolda "Refused to execute inline
+     script" görürsün).
+     matter.js ve fontlar yerele alındıktan sonra buraya düş:
+     default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="color-scheme" content="dark">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@500;700;800&family=Saira+Stencil+One&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --iron:#1B1D24; --soot:#0C0E13; --plate:#262A33; --edge:#3D4450;
+    --brick:#3A2C24; --mortar:#241B16;
+    --ember:#FF6B12; --brass:#C9A227; --patina:#5E8F86; --bone:#E8E0D0; --dim:#8A8272;
+  }
+  *{
+    box-sizing:border-box;margin:0;padding:0;
+    -webkit-tap-highlight-color:transparent;
+    -webkit-touch-callout:none;
+    -webkit-user-select:none;user-select:none;
+  }
+  html,body{height:100%;overflow:hidden}
+  body{
+    background:#08090C; color:var(--bone);
+    font-family:'IBM Plex Mono',ui-monospace,monospace;
+    display:flex;align-items:center;justify-content:center;touch-action:none;
+    padding:env(safe-area-inset-top) env(safe-area-inset-right)
+            env(safe-area-inset-bottom) env(safe-area-inset-left);
+    overscroll-behavior:none;
+  }
+  /* Boyutlandırma JS'te. aspect-ratio + max-width + height:%100 üçlüsü
+     tarayıcıya göre farklı davranıp oranı bozuyordu. */
+  #wrap{position:relative;box-shadow:0 0 90px rgba(0,0,0,.9)}
+  canvas{display:block;width:100%;height:100%;touch-action:none}
+
+  /* --- konsol: makinenin alt paneli --- */
+  #console{
+    position:absolute;left:0;right:0;bottom:0;height:12.6%;
+    display:flex;gap:2px;padding:0 3.5% 2.2%;align-items:stretch;pointer-events:auto;
+  }
+  .tool{
+    flex:1;position:relative;cursor:pointer;border:none;
+    background:linear-gradient(180deg,#2F343E 0%,#20242C 52%,#171A20 100%);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.09), inset 0 -2px 0 rgba(0,0,0,.6), 0 2px 0 #0B0D11;
+    color:var(--bone);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+    font-family:'Saira Stencil One',sans-serif;font-size:14px;letter-spacing:.05em;
+    transition:filter .12s, transform .06s;
+  }
+  .tool::before,.tool::after{           /* perçinler */
+    content:'';position:absolute;top:5px;width:4px;height:4px;border-radius:50%;
+    background:radial-gradient(circle at 35% 30%,#6B7382,#22262E);
+  }
+  .tool::before{left:6px} .tool::after{right:6px}
+  .tool .cost{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.12em;color:var(--brass)}
+  .tool.ready{color:#FFE9C9;text-shadow:0 0 12px rgba(255,107,18,.55)}
+  .tool.ready .cost{color:var(--ember)}
+  .tool:disabled{filter:saturate(.15) brightness(.55);cursor:default}
+  .tool:not(:disabled):active{transform:translateY(2px);filter:brightness(1.25)}
+  .tool.armed{background:linear-gradient(180deg,#FF8A2B,#D24E06);color:#1B1206;text-shadow:none}
+  .tool.armed .cost{color:#2A1808}
+  .tool:focus-visible{outline:2px solid var(--patina);outline-offset:-3px}
+
+  #corner{position:absolute;top:2.1%;right:3.5%;display:flex;gap:5px;pointer-events:auto}
+  .icon{
+    width:26px;height:26px;border:1px solid var(--edge);background:rgba(20,23,29,.8);
+    color:var(--dim);font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center;
+  }
+  .icon.on{color:var(--brass);border-color:#6B5A22}
+
+  #toast{
+    position:absolute;left:50%;top:40%;transform:translate(-50%,-50%);
+    font-family:'Saira Stencil One',sans-serif;font-size:23px;letter-spacing:.05em;
+    color:#FFD9A8;opacity:0;pointer-events:none;white-space:nowrap;
+    text-shadow:0 0 30px rgba(255,107,18,.85),0 2px 0 rgba(0,0,0,.6);
+  }
+
+  /* --- perdeler --- */
+  .sheet{
+    position:absolute;inset:0;display:none;flex-direction:column;
+    align-items:center;justify-content:center;text-align:center;padding:30px;
+    background:
+      radial-gradient(70% 50% at 50% 72%, rgba(255,107,18,.14), transparent 70%),
+      rgba(8,9,12,.93);
+    pointer-events:auto;
+  }
+  .sheet.show{display:flex}
+  .eyebrow{font-size:9px;letter-spacing:.34em;text-transform:uppercase;color:var(--dim)}
+  .title{
+    font-family:'Saira Stencil One',sans-serif;font-size:60px;letter-spacing:.1em;line-height:1;
+    color:var(--bone);text-shadow:0 0 44px rgba(255,107,18,.4);margin:10px 0 4px;
+  }
+  .sub{font-size:10px;letter-spacing:.2em;color:var(--dim);line-height:2;text-transform:uppercase}
+  .final{
+    font-family:'Big Shoulders Display',sans-serif;font-weight:800;font-size:78px;
+    line-height:.85;margin:6px 0 2px;letter-spacing:-.01em;
+  }
+  .stats{font-size:10px;color:var(--dim);letter-spacing:.12em;margin-top:18px;line-height:2.1}
+  .stats b{color:var(--bone);font-weight:500}
+  .btn{
+    margin-top:26px;background:linear-gradient(180deg,#2F343E,#191D24);
+    border:1px solid var(--edge);color:var(--bone);
+    font-family:'Saira Stencil One',sans-serif;font-size:14px;letter-spacing:.16em;
+    padding:15px 34px;cursor:pointer;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 3px 0 #0B0D11;
+  }
+  .btn:active{transform:translateY(2px);box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 1px 0 #0B0D11}
+  .rule{width:52px;height:1px;background:var(--brass);opacity:.5;margin:20px 0}
+  .btnrow{display:flex;gap:8px;align-items:stretch}
+  .btn.ghost{background:none;box-shadow:inset 0 0 0 1px var(--edge);color:var(--dim);padding:15px 22px}
+  .btn.ghost:active{transform:none;color:var(--bone)}
+  .ver{position:absolute;bottom:14px;left:0;right:0;text-align:center;
+       font-size:8px;letter-spacing:.3em;color:#3D4450}
+  #i-dbg{display:none}          /* hata ayıklama: D tuşuyla açılır */
+  .modes{display:flex;gap:1px;margin-top:26px}
+  .mode{
+    background:#191D24;border:1px solid var(--edge);color:var(--dim);cursor:pointer;
+    font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.2em;
+    padding:9px 18px;text-transform:uppercase;
+  }
+  .mode.on{background:var(--brass);border-color:var(--brass);color:#1B1206}
+  .seedline{font-size:9px;letter-spacing:.2em;color:var(--dim);margin-top:12px;line-height:1.8}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="c"></canvas>
+
+  <div id="console">
+    <button class="tool" id="t-burn">ATEŞLE<span class="cost">30</span></button>
+    <button class="tool" id="t-ham">ÇEKİÇLE<span class="cost">50</span></button>
+    <button class="tool" id="t-melt">ERGİT<span class="cost">75</span></button>
+  </div>
+
+  <div id="corner">
+    <button class="icon on" id="i-snd" aria-label="Ses">♪</button>
+    <button class="icon" id="i-pause" aria-label="Duraklat">❚❚</button>
+    <button class="icon" id="i-dbg" aria-label="Hata ayikla">◎</button>
+  </div>
+
+  <div id="toast"></div>
+
+  <div class="sheet show" id="start">
+    <div class="eyebrow">Döküm Ocağı</div>
+    <div class="title">POTA</div>
+    <div class="rule"></div>
+    <div class="sub">Aynı metalleri birleştir<br>Potayı taşırma<br>Isıyı harca</div>
+    <div class="modes">
+      <button class="mode on" id="m-daily">Günlük</button>
+      <button class="mode" id="m-free">Serbest</button>
+    </div>
+    <div class="seedline" id="seedline">Tohum —</div>
+    <button class="btn" id="begin">Ocağı Yak</button>
+    <div class="ver">SÜRÜM 1.0.0</div>
+  </div>
+
+  <div class="sheet" id="paused">
+    <div class="eyebrow">Ocak beklemede</div>
+    <button class="btn" id="resume">Devam</button>
+  </div>
+
+  <div class="sheet" id="over">
+    <div class="eyebrow">Pota taştı</div>
+    <div class="final" id="final">0</div>
+    <div class="sub" id="bestline">En iyi 0</div>
+    <div class="stats" id="stats"></div>
+    <div class="btnrow">
+      <button class="btn" id="again">Yeniden Dök</button>
+      <button class="btn ghost" id="share">Paylaş</button>
+    </div>
+  </div>
+</div>
+
+<!-- SRI hash'i BİLEREK boş bırakıldı: yanlış hash kaynağı tamamen bloke eder.
+     Doğrusunu kendin üret (guvenlik/sri-olustur.sh) ve integrity="..." ekle.
+     Asıl çözüm yerel paketleme; o zaman bu satır tümden kalkar. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"
+        crossorigin="anonymous"></script>
+<script src="game.js"></script>
+</body>
+</html>

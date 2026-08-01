@@ -6,6 +6,9 @@
 <title>POTA — Döküm Ocağı</title>
 <meta name="description" content="Aynı metalleri birleştir, potayı taşırma. Günlük tohumlu birleştirme oyunu.">
 <meta name="theme-color" content="#0C0E13">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon-192.png" sizes="192x192">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
 <!-- İçerik Güvenlik Politikası.
      ÖNEMLİ: script-src'te 'unsafe-inline' YOK, bu yüzden oyun kodu satır içi
      olamaz — game.js olarak ayrı dosyada. Tek dosyaya geri döndürürsen CSP
@@ -13,7 +16,7 @@
      script" görürsün).
      matter.js ve fontlar yerele alındıktan sonra buraya düş:
      default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com; object-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="color-scheme" content="dark">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -164,7 +167,7 @@
     </div>
     <div class="seedline" id="seedline">Tohum —</div>
     <button class="btn" id="begin">Ocağı Yak</button>
-    <div class="ver">SÜRÜM 1.0.0</div>
+    <div class="ver">YÜKLENİYOR…</div>
   </div>
 
   <div class="sheet" id="paused">
@@ -189,6 +192,7 @@
      Asıl çözüm yerel paketleme; o zaman bu satır tümden kalkar. -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"
         crossorigin="anonymous"></script>
+<script src="boot.js"></script>
 <script src="game.js"></script>
 </body>
 </html>

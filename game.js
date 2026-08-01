@@ -1,3 +1,21 @@
+/* Önyükleme teşhisi boot.js'e taşındı — game.js hiç çalışmazsa buradaki
+   yakalayıcı da çalışmıyordu. Burada sadece "yüklendim" bildirimi kalıyor. */
+window.__POTA_YUKLENDI=true;
+(function(){
+  function isaret(){
+    var v=document.querySelector('.ver');
+    if(v)v.textContent='SÜRÜM 1.0.1';
+  }
+  if(document.readyState==='loading')
+    document.addEventListener('DOMContentLoaded',isaret);
+  else isaret();
+  if('serviceWorker' in navigator&&location.protocol.startsWith('http')){
+    window.addEventListener('load',function(){
+      navigator.serviceWorker.register('sw.js').catch(function(){});
+    });
+  }
+})();
+
 if(typeof Matter==='undefined'){
   document.body.innerHTML='<div style="font:12px monospace;color:#E8E0D0;padding:40px;'+
     'text-align:center;letter-spacing:.1em">FİZİK MOTORU YÜKLENEMEDİ<br><br>'+
@@ -504,9 +522,43 @@ function refillBag(){
   bag=[];                                     // güvenlik ağı
   for(let t=0;t<BAG.length;t++)for(let i=0;i<BAG[t];i++)bag.push(t);
 }
+/* ─── Öksüz taş ertelemesi ────────────────────────────────────────────────
+   Sorun: Bronz (yarıçap 35) sahada eşi yokken düşünce potanın üçte birini
+   kaplayan ölü bir kütle oluyordu. Eşi ortalama 12 döküm sonra geliyor.
+
+   Denenen ve ELENEN çözüm: eşleri torbada birbirine yaklaştırmak. Ölçüldü,
+   işe yaramadı — eşler kümelenince aralar uzuyor, ortalama frekans dağılımla
+   zaten sabit olduğu için toplam bekleme değişmiyor.
+
+   Uygulanan çözüm: taş sahada karşılığı yoksa TORBADA ERTELENİR, atılmaz.
+   Sırada karşılığı olan bir taş varsa o öne alınır. Torbanın bileşimi
+   değişmez — sadece sıra kayar, yani dağılım garantilerinin hepsi durur.
+   Ertelenen taş, sahada eşi oluştuğunda kendiliğinden gelir.
+
+   YAN ETKİ: sıra artık sahaya da bağlı, yalnızca tohuma değil. Bağımsız
+   dağıtıcı denetimi (tools/dogrulama) bu yüzden kademe kontrolünü yapamaz;
+   tam tekrar doğrulaması hâlâ geçerli.                                     */
+const DEFER_FROM=2;              // bu kademeden itibaren erteleme uygulanır
+
+function onBoard(tier){
+  if(!engine)return false;
+  for(const b of Composite.allBodies(engine.world)){
+    if(b.isStatic||!b.plugin)continue;
+    if(b.plugin.tier===tier)return true;
+  }
+  return false;
+}
+function playable(tier){
+  return tier<DEFER_FROM||onBoard(tier)||queue.includes(tier);
+}
 function rnd(){
   if(!bag.length)refillBag();
-  const piece=bag.shift();
+  let i=0;
+  if(!playable(bag[0])){
+    // sırada oynanabilir bir taş var mı? varsa öne al, diğerini torbada bırak
+    for(let j=1;j<bag.length;j++)if(playable(bag[j])){i=j;break;}
+  }
+  const piece=bag.splice(i,1)[0];
   last2=[last2[1],piece];
   return piece;
 }
@@ -605,12 +657,28 @@ function onHit(ev){
     if(a.plugin.tier<0||b.plugin.tier<0)continue;
     if(a.plugin.tier!==b.plugin.tier||a.plugin.tier>=MAXT)continue;
     a.plugin.dead=b.plugin.dead=true;
-    mergeQ.push([a,b]);
+    mergeQ.push({a,b,kalan:MERGE_DELAY});
   }
 }
+/* Birleşme artık anlık değil: temas anında birleşme göz tarafından
+   yakalanamıyordu. MERGE_DELAY fizik adımı süren bir "kaynama" evresi var —
+   çift birbirine çekilir ve parlar, SONRA birleşir. Süre fizik adımıyla
+   sayılır (determinizm), duvar saatiyle değil.                            */
+const MERGE_DELAY=9;                      // ~150ms @60Hz
 function flush(){
-  while(mergeQ.length){
-    const [a,b]=mergeQ.shift();
+  for(let qi2=mergeQ.length-1;qi2>=0;qi2--){
+    const m2=mergeQ[qi2];
+    if(--m2.kalan>0){
+      const dd=Vector.sub(m2.b.position,m2.a.position);
+      const LL=Vector.magnitude(dd)||1;
+      const ff=.00016*(m2.a.mass+m2.b.mass);
+      Body.applyForce(m2.a,m2.a.position,{x:dd.x/LL*ff,y:dd.y/LL*ff});
+      Body.applyForce(m2.b,m2.b.position,{x:-dd.x/LL*ff,y:-dd.y/LL*ff});
+      m2.a.plugin.fusing=m2.b.plugin.fusing=1-m2.kalan/MERGE_DELAY;
+      continue;
+    }
+    mergeQ.splice(qi2,1);
+    const a=m2.a,b=m2.b;
     const tier=a.plugin.tier;
     /* Yeni külçe, ORTA NOKTADA değil YERDEKİ külçenin yerinde doğar.
        Orta nokta kuleyi kaydırıyor ve oyuncu nereye büyüyeceğini kestiremiyordu.
@@ -734,6 +802,9 @@ bBurn.onclick=()=>{if(heat<COST.burn||gameOver)return;armed=armed==='burn'?null:
 bHam.onclick=()=>{
   if(heat<COST.ham||gameOver)return;
   rec('h',0);heat-=COST.ham;armed=null;
+  // savrulan çiftler sahada birbirine uçmasın: kaynamaları iptal et
+  for(const m of mergeQ){m.a.plugin.dead=m.b.plugin.dead=false;m.a.plugin.fusing=m.b.plugin.fusing=0;}
+  mergeQ.length=0;
   wakeAll();
   for(const b of Composite.allBodies(engine.world)){
     if(b.isStatic)continue;
@@ -754,7 +825,20 @@ bMelt.onclick=()=>{
   if(pick<0){toast('EŞLEŞME YOK');return;}
   rec('m',0);heat-=COST.melt;armed=null;
   const l=map[pick];
-  for(let i=0;i+1<l.length;i+=2){l[i].plugin.dead=l[i+1].plugin.dead=true;mergeQ.push([l[i],l[i+1]]);}
+  // en yakın komşu eşleme: uzak çiftlerin birbirine sürüklenmesini önler
+  const kalanlar=[...l];
+  while(kalanlar.length>=2){
+    const a=kalanlar.shift();
+    let bi=0,bd=1e9;
+    for(let i=0;i<kalanlar.length;i++){
+      const d=Vector.magnitude(Vector.sub(kalanlar[i].position,a.position));
+      if(d<bd){bd=d;bi=i;}
+    }
+    const b=kalanlar.splice(bi,1)[0];
+    a.plugin.dead=b.plugin.dead=true;
+    // yakınsa kaynasınlar, uzaksa bekletmeden birleştir
+    mergeQ.push({a,b,kalan:bd<(TIERS[pick].r*3)?MERGE_DELAY:1});
+  }
   comboAt=performance.now();shakeMag=9;toast('ERGİT');syncTools();
 };
 function burnAt(p){
@@ -767,6 +851,15 @@ function burnAt(p){
       if(!reduce)for(let i=0;i<16;i++)
         sparks.push({x:b.position.x,y:b.position.y,vx:(Math.random()-.5)*9,vy:-Math.random()*7,l:1,c:'#FFC46B'});
       rec('b',p.x,p.y);
+      // silinen cisim bir kaynama çiftindeyse çifti iptal et, eşini serbest bırak
+      for(let i=mergeQ.length-1;i>=0;i--){
+        const m=mergeQ[i];
+        if(m.a===b||m.b===b){
+          const es=m.a===b?m.b:m.a;
+          es.plugin.dead=false;es.plugin.fusing=0;
+          mergeQ.splice(i,1);
+        }
+      }
       Composite.remove(engine.world,b);
       heat-=isSlag?COST.burn/2:COST.burn;      // cürufu temizlemek ucuz
       armed=null;
@@ -1012,9 +1105,17 @@ function drawOrb(b,now){
     ctx.globalAlpha=1;
   }
 
-  if(tier>=9){ctx.shadowColor=t.c;ctx.shadowBlur=20;}
+  const fus=b.plugin.fusing||0;
+  if(fus){ctx.shadowColor='#FFB868';ctx.shadowBlur=8+fus*22;}
+  else if(tier>=9){ctx.shadowColor=t.c;ctx.shadowBlur=20;}
   ctx.drawImage(lit,x-r,y-r,r*2,r*2);          // ışık katmanı: dönmez
   ctx.shadowBlur=0;
+  if(fus){                                      // kaynama parlaması
+    ctx.globalAlpha=fus*.45;
+    ctx.fillStyle='#FFD9A0';
+    ctx.beginPath();ctx.arc(x,y,r,0,7);ctx.fill();
+    ctx.globalAlpha=1;
+  }
 
   if(Math.abs(b.angle)>.002){                  // yüzey katmanı: döner
     ctx.save();ctx.translate(x,y);ctx.rotate(b.angle);
@@ -1300,6 +1401,7 @@ function loop(now){
     let spill=false;
     for(const b of Composite.allBodies(engine.world)){
       if(b.isStatic||!b.plugin.settled)continue;
+      if(b.plugin.dead)continue;      // kaynayan çift 150ms içinde yok olacak
       const r=b.plugin.tier<0?SLAG_R:TIERS[b.plugin.tier].r;
       if(b.position.y-r<LINE_Y&&Math.abs(b.velocity.y)<1.2){spill=true;break;}
     }

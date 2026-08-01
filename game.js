@@ -77,13 +77,19 @@ const SETTLE_DAMP=.22;     // oturmuş cismin yatay hızı bu oranda korunur
 function damping(){
   for(const b of Composite.allBodies(engine.world)){
     if(b.isStatic)continue;
-    if(Math.abs(b.angularVelocity)>1e-4)
-      Body.setAngularVelocity(b,b.angularVelocity*ROLL_DAMP);
+    const w=b.angularVelocity;
+    // Sönüm artık hıza uyarlanır: hızlı dönüş güçlü kesilir (çarpma sonrası
+    // fırıldak dönmesin), yavaş yuvarlanmaya neredeyse dokunulmaz (toplar
+    // boşluklara kayıp yerleşebilsin). Sabit çarpan ikisini ayıramıyordu.
+    if(Math.abs(w)>.02){
+      const k=Math.abs(w)>.25?.94:.985;
+      Body.setAngularVelocity(b,w*k);
+    }
     const vx=b.velocity.x,vy=b.velocity.y;
-    // KRİTİK: kelepçe yalnızca cisim bir şeyin ÜSTÜNDE dururken uygulanır.
-    // Desteği olmayan bir cismin hızına dokunmak onu havada dondurabilir.
+    // Kelepçe yalnızca DESTEKLİ cisme: desteği olmayanın hızına dokunmak
+    // onu havada dondurabilir (uyku kipi faciasından alınan ders).
     if(b.plugin.supported&&Math.hypot(vx,vy)<SETTLE_SPEED&&Math.abs(vy)<.3){
-      Body.setVelocity(b,{x:Math.abs(vx)<.02?0:vx*SETTLE_DAMP,y:vy}); // sadece yatay
+      Body.setVelocity(b,{x:Math.abs(vx)<.02?0:vx*SETTLE_DAMP,y:vy});
     }
     b.plugin.supported=false;               // her adımda sıfırlanır, temasla tazelenir
   }
@@ -435,8 +441,8 @@ const moveWalls=()=>{
 function reset(){
   if(engine)Engine.clear(engine);
   engine=Engine.create();
-  engine.gravity.y=1.25;
-  engine.positionIterations=10;engine.velocityIterations=8;engine.constraintIterations=3;
+  engine.gravity.y=1.32;
+  engine.positionIterations=8;engine.velocityIterations=6;engine.constraintIterations=2;
   // UYKU KİPİ AÇILMAMALI. Matter'da uyuyan cisme yerçekimi uygulanmaz ve ancak
   // bir çarpışma onu uyandırır. Bu oyunda altındaki toplar birleşerek yok oluyor;
   // destek kaybolduğunda çarpışma olayı doğmadığı için üstteki top havada asılı
@@ -567,12 +573,18 @@ function rnd(){
 function orb(x,y,tier){
   const t=TIERS[tier];
   const b=Bodies.circle(x,y,t.r,{
-    restitution:.06,        // az zıplasın, yığın sakin dursun
-    friction:.55,           // yanlara kaymayı azalt
+    // Zıplama kademeyle azalır: kum tanesi hafifçe seker, Platin küt diye oturur.
+    restitution:.10-tier*.006,
+    friction:.55,
     frictionStatic:.9,
-    frictionAir:.016,       // sonsuz yuvarlanmayı kes
-    density:.0012,
-    slop:.05                // Matter'ın varsayılanı; .02 titremeye yol açıyordu
+    // Hava sürtünmesi kademeyle azalır: küçük taş havada oyalanır, büyük taş
+    // taş gibi düşer. Ağırlık algısının yarısı düşüş hızındadır.
+    frictionAir:.020-tier*.0011,
+    // Yoğunluk kademeyle artar: alan farkının üstüne malzeme farkı biner.
+    // Platin/Kum kütle oranı 32x'ten ~55x'e çıkar — büyük top küçükleri
+    // gerçekten kenara iter, altına girilmez.
+    density:.0011+tier*.00006,
+    slop:.05
   });
   b.plugin={tier,pulse:1,spin:Math.random()*6,sq:0,sqA:0,supported:false};
   World.add(engine.world,b);return b;
@@ -892,8 +904,27 @@ function tip(key,msg){
 document.getElementById('i-snd').onclick=function(){sound=!sound;this.classList.toggle('on',sound);};
 document.getElementById('i-dbg').onclick=function(){debug=!debug;this.classList.toggle('on',debug);};
 addEventListener('keydown',e=>{if(e.key==='d'||e.key==='D'){debug=!debug;document.getElementById('i-dbg').classList.toggle('on',debug);}});
-document.getElementById('i-pause').onclick=()=>{if(started&&!gameOver){paused=true;pausedEl.classList.add('show');}};
-document.getElementById('resume').onclick=()=>{paused=false;pausedEl.classList.remove('show');};
+document.getElementById('i-pause').onclick=()=>{
+  if(started&&!gameOver){
+    paused=true;
+    document.getElementById('p-confirm').style.display='none';
+    pausedEl.classList.add('show');
+  }
+};
+document.getElementById('resume').onclick=()=>{
+  paused=false;pausedEl.classList.remove('show');
+  document.getElementById('p-confirm').style.display='none';
+};
+/* Yeniden başlat: skoru silen bir eylem yanlış dokunuşla tetiklenmemeli,
+   o yüzden tek onay adımı var. Onay, perde her açıldığında sıfırlanır. */
+document.getElementById('p-restart').onclick=()=>{
+  document.getElementById('p-confirm').style.display='block';
+};
+document.getElementById('p-yes').onclick=()=>{
+  document.getElementById('p-confirm').style.display='none';
+  pausedEl.classList.remove('show');
+  reset();
+};
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&started&&!gameOver){paused=true;pausedEl.classList.add('show');}});
 const mDaily=document.getElementById('m-daily'),mFree=document.getElementById('m-free'),
       seedLine=document.getElementById('seedline');
@@ -1377,6 +1408,28 @@ function loop(now){
       acc-=FIXED;steps++;
     }
     if(steps===5)acc=0;                    // takılırsa borcu sil, spiral olmasın
+
+    // Tünelleme koruması: bir adımda kendi yarıçapından fazla yol alan cisim
+    // ince cisimlerden geçebilir (Matter'da sürekli çarpışma tespiti yok).
+    // Hız, yarıçapa göre tavanlanır.
+    for(const b of Composite.allBodies(engine.world)){
+      if(b.isStatic||!b.plugin)continue;
+      const r=b.plugin.tier<0?SLAG_R:TIERS[b.plugin.tier].r;
+      const vmax=r*.9;                     // adım başına en çok 0.9r
+      const sp=Math.hypot(b.velocity.x,b.velocity.y);
+      if(sp>vmax)Body.setVelocity(b,{x:b.velocity.x/sp*vmax,y:b.velocity.y/sp*vmax});
+    }
+
+    // Sınır bekçisi: daralan duvar + şok dalgası cismi duvarın içinde
+    // bırakabiliyor; çözücü bunu patlamayla düzeltiyor. Yumuşakça içeri taşı.
+    for(const b of Composite.allBodies(engine.world)){
+      if(b.isStatic||!b.plugin)continue;
+      const r=b.plugin.tier<0?SLAG_R:TIERS[b.plugin.tier].r;
+      const minX=inset+r,maxX=W-inset-r;
+      if(b.position.x<minX)Body.setPosition(b,{x:Math.min(minX,b.position.x+3),y:b.position.y});
+      else if(b.position.x>maxX)Body.setPosition(b,{x:Math.max(maxX,b.position.x-3),y:b.position.y});
+      if(b.position.y>FLOOR_Y-r)Body.setPosition(b,{x:b.position.x,y:FLOOR_Y-r});
+    }
 
     // Güvenlik ağı: desteği olmayan ama hareketsiz duran cisim varsa dürt.
     // Teoride gereksiz; pratikte havada donmuş top hatasını imkânsız kılar.

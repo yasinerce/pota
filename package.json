@@ -1,0 +1,24 @@
+{
+  "name": "pota-repo",
+  "version": "1.0.0",
+  "description": "Fizik tabanlı birleştirme oyunu. Tek dosya, HTML5 Canvas + Matter.js.",
+  "main": "boot.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "build": "node build.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@capacitor/core": "^8.5.1"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^8.5.1",
+    "@capacitor/cli": "^8.5.1"
+  }
+}

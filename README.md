@@ -2,7 +2,7 @@
 
 Fizik tabanlı birleştirme oyunu. Tek dosya, HTML5 Canvas + Matter.js.
 
-**▶ [Oyna](https://yasinerce6.github.io/pota/)**
+**▶ [Oyna](https://yasinerce.github.io/pota/)**
 
 <!-- Yukarıdaki bağlantıyı kendi kullanıcı adınla değiştir -->
 
